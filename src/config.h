@@ -14,8 +14,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // I²C bus pins  (BH1750 light sensor)
 // ─────────────────────────────────────────────────────────────────────────────
-constexpr int PIN_I2C_SDA = 21;  
-constexpr int PIN_I2C_SCL = 22;  
+constexpr int PIN_I2C_SDA = 22;  
+constexpr int PIN_I2C_SCL = 21;  
 
 /**
  * @brief BH1750 I²C address.
