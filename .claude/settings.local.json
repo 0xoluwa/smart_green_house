@@ -2,7 +2,13 @@
   "permissions": {
     "allow": [
       "Bash(pio run *)",
-      "Bash(~/.platformio/penv/bin/pio run *)"
+      "Bash(~/.platformio/penv/bin/pio run *)",
+      "Bash(mkdir -p /Users/sulaimanoreoluwa/Documents/PlatformIO/smart_green_house/.claude/worktrees/agent-a85e5eea181d0e803/src/data)",
+      "Bash(mkdir -p /Users/sulaimanoreoluwa/Documents/PlatformIO/smart_green_house/.claude/worktrees/agent-a85e5eea181d0e803/src/tasks)",
+      "Bash(mkdir -p /Users/sulaimanoreoluwa/Documents/PlatformIO/smart_green_house/.claude/worktrees/agent-a85e5eea181d0e803/src/sensors)",
+      "Bash(mkdir -p /Users/sulaimanoreoluwa/Documents/PlatformIO/smart_green_house/.claude/worktrees/agent-a85e5eea181d0e803/src/actuators)",
+      "Bash(mkdir -p /Users/sulaimanoreoluwa/Documents/PlatformIO/smart_green_house/.claude/worktrees/agent-a85e5eea181d0e803/src/web)",
+      "Bash(git -C .claude/worktrees/agent-a85e5eea181d0e803 status)"
     ]
   }
 }

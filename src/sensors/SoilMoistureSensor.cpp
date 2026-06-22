@@ -29,16 +29,11 @@ bool SoilMoistureSensor::init() {
     }
     ESP_LOGI(TAG, "GPIO%d  dry=%d  wet=%d", m_pin, m_dry, m_wet);
 
-    // ── 2. Re-apply ADC attenuation ───────────────────────────────────────────
-    // The Preferences/NVS call above accesses the internal flash SPI bus.
-    // On ESP-IDF v5.x (Arduino-ESP32 v3.x) this can reset the ADC channel
-    // configuration that was set in setup() – so we must re-apply it here,
-    // AFTER the flash operation, not before.
-    analogSetPinAttenuation(m_pin, ADC_11db);  // 0–3.6 V on this pin
-    vTaskDelay(pdMS_TO_TICKS(100));            // Let ADC settle
-
-    // Discard the first few reads – the ADC sample-hold needs a moment to
-    // charge to the real input voltage after the attenuation was re-applied.
+    // ── 2. Warm-up reads ──────────────────────────────────────────────────────
+    // ADC attenuation and resolution are configured in setup() before tasks start.
+    // Do NOT call analogSetPinAttenuation here — calling it from a FreeRTOS task
+    // context after the scheduler has started corrupts the ADC channel config.
+    // Discard a few reads so the sample-hold capacitor charges to the real input.
     for (int i = 0; i < 5; i++) {
         (void)analogRead(m_pin);
         vTaskDelay(pdMS_TO_TICKS(10));
@@ -82,12 +77,15 @@ bool SoilMoistureSensor::read(SoilData& data) {
     }
     data.rawAdc = static_cast<int>(sum / 8);
 
-    if (data.rawAdc <= RAW_INVALID_LOW || data.rawAdc >= RAW_INVALID_HIGH) {
+    // Note: raw=0 is NOT treated as invalid — this sensor's oscillator stalls
+    // when fully submerged, driving AOUT to 0 V (= 100 % moisture by formula).
+    // Only reject ADC rail saturation (wire shorted to VCC).
+    if (data.rawAdc >= RAW_INVALID_HIGH) {
         static uint32_t lastWarnMs = 0;
         if (millis() - lastWarnMs >= 30000) {
             lastWarnMs = millis();
-            ESP_LOGW(TAG, "raw=%d invalid on GPIO%d (valid range %d–%d)",
-                     data.rawAdc, m_pin, RAW_INVALID_LOW, RAW_INVALID_HIGH);
+            ESP_LOGW(TAG, "raw=%d saturated on GPIO%d – AOUT shorted to VCC?",
+                     data.rawAdc, m_pin);
         }
         data.moisturePct = 0.0f;
         return false;
@@ -97,7 +95,17 @@ bool SoilMoistureSensor::read(SoilData& data) {
     return true;
 }
 
+void SoilMoistureSensor::setCalibration(int dry, int wet) {
+    if (dry <= wet) {
+        ESP_LOGW(TAG, "Ignoring calibration: dry=%d must be > wet=%d for a capacitive sensor", dry, wet);
+        return;
+    }
+    m_dry = dry;
+    m_wet = wet;
+}
+
 float SoilMoistureSensor::toPercent(int raw) const {
+    if (m_dry <= m_wet) return 0.0f;  // Guard: inverted or equal calibration → refuse to divide
     float pct = static_cast<float>(m_dry - raw) /
                 static_cast<float>(m_dry - m_wet) * 100.0f;
     return std::clamp(pct, 0.0f, 100.0f);

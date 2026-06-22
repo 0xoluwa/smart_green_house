@@ -14,8 +14,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // I²C bus pins  (BH1750 light sensor)
 // ─────────────────────────────────────────────────────────────────────────────
-constexpr int PIN_I2C_SDA = 22;  ///< Default ESP32 SDA
-constexpr int PIN_I2C_SCL = 21;  ///< Default ESP32 SCL
+constexpr int PIN_I2C_SDA = 21;  
+constexpr int PIN_I2C_SCL = 22;  
 
 /**
  * @brief BH1750 I²C address.
@@ -46,7 +46,7 @@ constexpr int PIN_RELAY = 25;
  *        energises the coil (pump ON), and HIGH de-energises it (pump OFF).
  *        Set false for active-HIGH relay modules.
  */
-constexpr bool RELAY_ACTIVE_LOW = true;
+constexpr bool RELAY_ACTIVE_LOW = false;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Battery – 3S LiPo voltage divider
@@ -69,8 +69,8 @@ constexpr float BATTERY_VOLTAGE_DEAD  =  9.00f;   ///< 3.00 V × 3 cells (0 %)
 // Measure the raw ADC count with the probe in dry air and fully submerged in
 // water, then update the two constants below.
 // ─────────────────────────────────────────────────────────────────────────────
-constexpr int SOIL_ADC_DRY = 2410;  ///< Raw ADC in completely dry air
-constexpr int SOIL_ADC_WET = 580;  ///< Raw ADC fully submerged in water
+constexpr int SOIL_ADC_DRY = 100;  ///< Raw ADC in completely dry air
+constexpr int SOIL_ADC_WET = 0;  ///< Raw ADC fully submerged in water
 
 // ─────────────────────────────────────────────────────────────────────────────
 // WiFi provisioning AP
@@ -85,6 +85,8 @@ constexpr uint32_t    WIFI_CONNECT_TIMEOUT_MS = 30000; ///< Station mode timeout
 constexpr const char* NVS_NAMESPACE     = "greenhouse";
 constexpr const char* NVS_KEY_SSID      = "ssid";
 constexpr const char* NVS_KEY_PASS      = "password";
+constexpr const char* NVS_KEY_AP_SSID   = "ap_ssid";   ///< Custom AP hotspot name
+constexpr const char* NVS_KEY_AP_PASS   = "ap_pass";   ///< Custom AP hotspot password
 constexpr const char* NVS_KEY_THRESHOLD = "threshold";
 constexpr const char* NVS_KEY_TIMEOUT   = "timeout";
 constexpr const char* NVS_KEY_SOIL_DRY  = "soil_dry";  ///< Calibration: raw ADC in dry air
@@ -106,7 +108,7 @@ constexpr int HISTORY_SIZE       = 480;   ///< 480 × 1 min = 8 h ring buffer (~
 // ─────────────────────────────────────────────────────────────────────────────
 // FreeRTOS task periods
 // ─────────────────────────────────────────────────────────────────────────────
-constexpr uint32_t SENSOR_TASK_PERIOD_MS   =  5000;
+constexpr uint32_t SENSOR_TASK_PERIOD_MS   =  1000;
 constexpr uint32_t BATTERY_TASK_PERIOD_MS  = 15000;
 constexpr uint32_t PUMP_TASK_PERIOD_MS     =   500;
 constexpr uint32_t WEB_BROADCAST_PERIOD_MS =  2000;
@@ -120,7 +122,7 @@ constexpr uint32_t BATTERY_TASK_STACK = 4096;  // needs room for float log forma
 constexpr uint32_t PUMP_TASK_STACK    = 4096;  // Preferences + float logs → was overflowing at 2048
 constexpr uint32_t WEB_TASK_STACK     = 8192;
 constexpr uint32_t WIFI_TASK_STACK    = 8192;
-constexpr uint32_t HISTORY_TASK_STACK = 4096;
+constexpr uint32_t HISTORY_TASK_STACK = 8192;  ///< Increased for LittleFS ops + vector in PersistentLog
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FreeRTOS task priorities  (higher number = higher priority)
@@ -131,3 +133,9 @@ constexpr UBaseType_t SENSOR_TASK_PRIORITY  = 2;
 constexpr UBaseType_t WEB_TASK_PRIORITY     = 2;
 constexpr UBaseType_t BATTERY_TASK_PRIORITY = 1;
 constexpr UBaseType_t HISTORY_TASK_PRIORITY = 1;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Persistent logging (LittleFS)
+// ─────────────────────────────────────────────────────────────────────────────
+constexpr uint8_t LOG_WARN_PCT   = 75;  ///< Warn user when LittleFS > 75 % full
+constexpr uint8_t LOG_EVICT_PCT  = 90;  ///< Evict oldest day when > 90 % full

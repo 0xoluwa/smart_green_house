@@ -142,11 +142,22 @@ static const char DASHBOARD_HTML[] PROGMEM = R"rawhtml(
   <!-- Header -->
   <header>
     <h1>🌿 Smart Greenhouse</h1>
-    <div class="pill">
-      <div class="dot" id="statusDot"></div>
-      <span id="statusText">Connecting…</span>
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+      <div class="pill">
+        <div class="dot" id="statusDot"></div>
+        <span id="statusText">Connecting…</span>
+      </div>
+      <div class="pill">
+        <div class="dot" id="ntpDot"></div>
+        <span id="ntpText">Time sync…</span>
+      </div>
     </div>
   </header>
+
+  <!-- Storage warning (hidden until logWarn=true) -->
+  <div id="logWarnBanner" style="display:none;background:rgba(245,158,11,.12);border:1px solid #f59e0b;border-radius:var(--r);padding:.7rem 1rem;margin-bottom:1rem;font-size:.84rem;color:#f59e0b;">
+    ⚠ Log storage is getting full. <a href="/logs" style="color:#f59e0b;font-weight:700">Download logs now</a> before the oldest data is removed.
+  </div>
 
   <!-- Sensor tiles -->
   <div class="tiles">
@@ -223,7 +234,9 @@ static const char DASHBOARD_HTML[] PROGMEM = R"rawhtml(
     <span>RSSI: <strong id="sysRssi">—</strong> dBm</span>
     <span>IP: <strong id="sysIP">—</strong></span>
     <span>Sensors: DHT22 + BH1750</span>
-    <span><a href="/calibrate" style="color:var(--accent);text-decoration:none">🌱 Soil Calibration →</a></span>
+    <span><a href="/calibrate" style="color:var(--accent);text-decoration:none">&#127807; Soil Calibration &#8594;</a></span>
+    <span><a href="/settings"  style="color:var(--accent);text-decoration:none">&#9881; Settings &#8594;</a></span>
+    <span><a href="/logs"      style="color:var(--accent);text-decoration:none">&#128190; Log Download &#8594;</a></span>
   </div>
 
 </div><!-- /container -->
@@ -238,8 +251,10 @@ function fmtUptime(ms) {
   const m = Math.floor(s / 60);   s %= 60;
   return `${h}h ${m}m ${s}s`;
 }
+const MIN_REAL_EPOCH_MS = 1577836800000; // Jan 1 2020 – anything below means "no NTP sync"
 function tsLabel(ms) {
-  const d = new Date(ms);
+  if (!ms || ms < MIN_REAL_EPOCH_MS) return '--:--';
+  const d = new Date(ms);  // browser shows in local timezone automatically
   return d.getHours().toString().padStart(2,'0') + ':' +
          d.getMinutes().toString().padStart(2,'0');
 }
@@ -251,6 +266,27 @@ function luxDesc(lux) {
   if (lux < 2000)  return 'Indoor light';
   if (lux < 10000) return 'Overcast';
   return 'Full sunlight';
+}
+
+// ── Gap detection for charts ───────────────────────────────────────────────────
+// epochTs[i] mirrors the chart label array; holds raw epoch ms for each point.
+let epochTs = [];
+const GAP_MS = 5 * 60 * 1000; // 5 min – more than 2× the 1-min sample interval
+
+function isGap(ctx) {
+  const i0 = ctx.p0DataIndex, i1 = ctx.p1DataIndex;
+  if (i0 < 0 || i1 >= epochTs.length) return false;
+  const t0 = epochTs[i0], t1 = epochTs[i1];
+  return (t0 && t1 && t1 - t0 > GAP_MS);
+}
+
+function gapSegment(normalColor) {
+  return {
+    borderColor:     ctx => isGap(ctx) ? 'rgba(100,116,139,0.45)' : normalColor,
+    borderDash:      ctx => isGap(ctx) ? [5, 4] : undefined,
+    borderWidth:     ctx => isGap(ctx) ? 1 : undefined,
+    backgroundColor: ctx => isGap(ctx) ? 'rgba(0,0,0,0)' : undefined,
+  };
 }
 
 // ── Chart setup ───────────────────────────────────────────────────────────────
@@ -267,17 +303,18 @@ function makeChart(id, datasets) {
 }
 
 const chartTH = makeChart('chartTH', [
-  { label: 'Temperature (°C)', data: [], borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,.1)',  fill: true, tension: .4, pointRadius: 2 },
-  { label: 'Humidity (%)',     data: [], borderColor: '#38bdf8', backgroundColor: 'rgba(56,189,248,.08)', fill: true, tension: .4, pointRadius: 2 }
+  { label: 'Temperature (°C)', data: [], borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,.1)',  fill: true, tension: .4, pointRadius: 2, spanGaps: true, segment: gapSegment('#f97316') },
+  { label: 'Humidity (%)',     data: [], borderColor: '#38bdf8', backgroundColor: 'rgba(56,189,248,.08)', fill: true, tension: .4, pointRadius: 2, spanGaps: true, segment: gapSegment('#38bdf8') }
 ]);
 const chartLight = makeChart('chartLight', [
-  { label: 'Light (lux)', data: [], borderColor: '#fbbf24', backgroundColor: 'rgba(251,191,36,.12)', fill: true, tension: .4, pointRadius: 2 }
+  { label: 'Light (lux)', data: [], borderColor: '#fbbf24', backgroundColor: 'rgba(251,191,36,.12)', fill: true, tension: .4, pointRadius: 2, spanGaps: true, segment: gapSegment('#fbbf24') }
 ]);
 const chartSoil = makeChart('chartSoil', [
-  { label: 'Soil Moisture (%)', data: [], borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,.12)', fill: true, tension: .4, pointRadius: 2 }
+  { label: 'Soil Moisture (%)', data: [], borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,.12)', fill: true, tension: .4, pointRadius: 2, spanGaps: true, segment: gapSegment('#22c55e') }
 ]);
 
 function pushHistory(samples) {
+  epochTs = samples.map(s => s.ts || 0);
   const labs = samples.map(s => tsLabel(s.ts));
   chartTH.data.labels = labs;
   chartTH.data.datasets[0].data = samples.map(s => s.te < -900 ? null : s.te);
@@ -350,6 +387,13 @@ function updateLive(d) {
   if (d.ip) document.getElementById('sysIP').textContent = d.ip;
 
   updateControls(d);
+
+  // NTP indicator
+  document.getElementById('ntpDot').classList.toggle('on', !!d.ntpOk);
+  document.getElementById('ntpText').textContent = d.ntpOk ? 'NTP synced' : 'No time sync';
+
+  // Storage warning banner
+  document.getElementById('logWarnBanner').style.display = d.logWarn ? 'block' : 'none';
 }
 
 // ── WebSocket ─────────────────────────────────────────────────────────────────

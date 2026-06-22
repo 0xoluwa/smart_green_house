@@ -43,6 +43,14 @@ public:
      */
     static String buildHistoryJson();
 
+    /**
+     * @brief Push the current ring buffer to all connected WebSocket clients.
+     *
+     * Called by HistoryTask after it pre-populates the ring buffer from
+     * persistent flash logs so clients already open get the historical data.
+     */
+    static void broadcastHistory();
+
 private:
     static void taskFunc(void* param);
 

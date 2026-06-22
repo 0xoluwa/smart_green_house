@@ -123,9 +123,8 @@ void SensorTask::taskFunc(void* /*param*/) {
         soilReading.timestampMs = millis();
         sd.setSoil(soilReading);
 
-        if (soilValid) {
-            ESP_LOGI(TAG, "Soil=%d raw  %.1f%%", soilData.rawAdc, soilData.moisturePct);
-        }
+        ESP_LOGI(TAG, "Soil raw=%-4d  %.1f%%  [%s]",
+                 soilData.rawAdc, soilData.moisturePct, soilValid ? "OK" : "INVALID");
 
         vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(SENSOR_TASK_PERIOD_MS));
     }

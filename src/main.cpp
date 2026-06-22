@@ -18,6 +18,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include "config.h"
+#include "logging/PersistentLog.h"
 #include "tasks/SensorTask.h"
 #include "tasks/BatteryTask.h"
 #include "tasks/PumpTask.h"
@@ -42,6 +43,9 @@ void setup() {
     // Dummy reads to flush the ADC channel initialisation
     (void)analogRead(PIN_SOIL_ADC);
     (void)analogRead(PIN_BATTERY_ADC);
+
+    // ── Mount LittleFS for persistent log storage ─────────────────────────────
+    PersistentLog::instance().begin();
 
     // ── Spawn tasks ────────────────────────────────────────────────────────────
     // WiFi must start first; WebTask blocks on EVT_WIFI_READY.

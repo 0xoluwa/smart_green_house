@@ -8,11 +8,17 @@
 #include "../config.h"
 #include "../web/dashboard_html.h"
 #include "../web/calibrate_html.h"
+#include "../web/settings_html.h"
+#include "../web/logs_html.h"
+#include "../logging/PersistentLog.h"
 #include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h>
+#include <Preferences.h>
+#include <LittleFS.h>
 #include <WiFi.h>
 #include <cmath>
 #include <esp_log.h>
+#include <sys/time.h>
 
 static const char* TAG = "WebTask";
 
@@ -141,6 +147,11 @@ void WebTask::buildLiveJson(char* buf, size_t bufLen) {
     PumpState          state = sd.getPumpState();
     SoilCalibration    cal   = sd.getSoilCalibration();
 
+    struct timeval tv;
+    gettimeofday(&tv, nullptr);
+    bool ntpOk = (tv.tv_sec > 1577836800L);
+    LogStorageInfo lsi = PersistentLog::instance().getStorageInfo();
+
     snprintf(buf, bufLen,
         "{"
         "\"type\":\"live\","
@@ -161,7 +172,9 @@ void WebTask::buildLiveJson(char* buf, size_t bufLen) {
         "\"timeoutS\":%lu,"
         "\"uptimeMs\":%lu,"
         "\"rssi\":%d,"
-        "\"ip\":\"%s\""
+        "\"ip\":\"%s\","
+        "\"ntpOk\":%s,"
+        "\"logWarn\":%s"
         "}",
         env.valid   ? env.temperature  : -999.0f,
         env.valid   ? env.humidity     : -999.0f,
@@ -180,8 +193,15 @@ void WebTask::buildLiveJson(char* buf, size_t bufLen) {
         cfg.maxRunTimeS,
         millis(),
         WiFi.RSSI(),
-        WiFi.localIP().toString().c_str()
+        WiFi.localIP().toString().c_str(),
+        ntpOk        ? "true" : "false",
+        lsi.nearFull ? "true" : "false"
     );
+}
+
+void WebTask::broadcastHistory() {
+    String json = buildHistoryJson();
+    if (json.length()) g_ws.textAll(json);
 }
 
 String WebTask::buildHistoryJson() {
@@ -209,9 +229,9 @@ String WebTask::buildHistoryJson() {
 
         char entry[96];
         snprintf(entry, sizeof(entry),
-            "%s{\"ts\":%lu,\"te\":%s,\"hu\":%s,\"lx\":%s,\"so\":%s}",
+            "%s{\"ts\":%lld,\"te\":%s,\"hu\":%s,\"lx\":%s,\"so\":%s}",
             i > 0 ? "," : "",
-            buf[i].timestampMs,
+            buf[i].epochMs,
             te, hu, lx, so);
         json += entry;
     }
@@ -255,9 +275,96 @@ void WebTask::taskFunc(void* /*param*/) {
         req->send_P(200, "text/html", CALIBRATE_HTML);
     });
 
+    g_server.on("/settings", HTTP_GET, [](AsyncWebServerRequest* req) {
+        req->send_P(200, "text/html", SETTINGS_HTML);
+    });
+
+    // Returns current AP SSID and connected WiFi SSID (password never returned)
+    g_server.on("/api/settings", HTTP_GET, [](AsyncWebServerRequest* req) {
+        Preferences prefs;
+        String apSsid   = WIFI_AP_SSID;
+        String wifiSsid;
+        if (prefs.begin(NVS_NAMESPACE, true)) {
+            apSsid   = prefs.getString(NVS_KEY_AP_SSID, apSsid);
+            wifiSsid = prefs.getString(NVS_KEY_SSID,    "");
+            prefs.end();
+        }
+        JsonDocument doc;
+        doc["apSsid"]   = apSsid;
+        doc["wifiSsid"] = wifiSsid;
+        String json;
+        serializeJson(doc, json);
+        req->send(200, "application/json", json);
+    });
+
+    // Save custom AP hotspot name and password
+    g_server.on("/api/settings/ap", HTTP_POST, [](AsyncWebServerRequest* req) {
+        String ssid = req->arg("ssid");
+        String pass = req->arg("pass");
+        if (ssid.isEmpty()) {
+            req->send(400, "application/json", "{\"ok\":false,\"error\":\"SSID required\"}");
+            return;
+        }
+        if (pass.length() > 0 && pass.length() < 8) {
+            req->send(400, "application/json", "{\"ok\":false,\"error\":\"Password must be at least 8 characters\"}");
+            return;
+        }
+        Preferences prefs;
+        if (prefs.begin(NVS_NAMESPACE, false)) {
+            prefs.putString(NVS_KEY_AP_SSID, ssid);
+            prefs.putString(NVS_KEY_AP_PASS,  pass);
+            prefs.end();
+        }
+        ESP_LOGI(TAG, "AP credentials updated: ssid=%s", ssid.c_str());
+        req->send(200, "application/json", "{\"ok\":true}");
+    });
+
+    // Save WiFi network credentials and restart
+    g_server.on("/api/settings/wifi", HTTP_POST, [](AsyncWebServerRequest* req) {
+        String ssid = req->arg("ssid");
+        String pass = req->arg("pass");
+        if (ssid.isEmpty()) {
+            req->send(400, "application/json", "{\"ok\":false,\"error\":\"SSID required\"}");
+            return;
+        }
+        Preferences prefs;
+        if (prefs.begin(NVS_NAMESPACE, false)) {
+            prefs.putString(NVS_KEY_SSID, ssid);
+            if (pass.length() > 0) prefs.putString(NVS_KEY_PASS, pass);
+            prefs.end();
+        }
+        ESP_LOGI(TAG, "WiFi credentials updated: ssid=%s – restarting", ssid.c_str());
+        req->send(200, "application/json", "{\"ok\":true}");
+        // Delay restart in a background task so the HTTP response can flush first
+        xTaskCreate([](void*) {
+            vTaskDelay(pdMS_TO_TICKS(1500));
+            esp_restart();
+        }, "restart", 2048, nullptr, 5, nullptr);
+    });
+
     g_server.on("/history", HTTP_GET, [](AsyncWebServerRequest* req) {
         String json = WebTask::buildHistoryJson();
         req->send(200, "application/json", json);
+    });
+
+    g_server.on("/logs", HTTP_GET, [](AsyncWebServerRequest* req) {
+        req->send_P(200, "text/html", LOGS_HTML);
+    });
+
+    g_server.on("/api/logs", HTTP_GET, [](AsyncWebServerRequest* req) {
+        static char logBuf[2048];
+        PersistentLog::instance().buildLogListJson(logBuf, sizeof(logBuf));
+        req->send(200, "application/json", logBuf);
+    });
+
+    g_server.on("/api/logs/download", HTTP_GET, [](AsyncWebServerRequest* req) {
+        if (!req->hasParam("date")) { req->send(400); return; }
+        String date = req->getParam("date")->value();
+        if (date.length() != 10 || date[4] != '-' || date[7] != '-') { req->send(400); return; }
+        if (!PersistentLog::instance().hasDate(date.c_str())) { req->send(404); return; }
+        String path = PersistentLog::logPath(date.c_str());
+        AsyncWebServerResponse* resp = req->beginResponse(LittleFS, path, "text/csv", true);
+        req->send(resp);
     });
 
     g_server.onNotFound([](AsyncWebServerRequest* req) {
@@ -267,7 +374,7 @@ void WebTask::taskFunc(void* /*param*/) {
     g_server.begin();
     ESP_LOGI(TAG, "Server ready – http://%s/", WiFi.localIP().toString().c_str());
 
-    static char liveBuf[640];
+    static char liveBuf[720];
     TickType_t lastWake = xTaskGetTickCount();
 
     for (;;) {

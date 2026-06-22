@@ -12,6 +12,7 @@
 #include <WebServer.h>   // Lightweight synchronous server for the provision page only
 #include <Preferences.h>
 #include <esp_log.h>
+#include <sys/time.h>
 
 static const char* TAG = "WiFiTask";
 
@@ -115,9 +116,19 @@ bool WiFiTask::connectStation(const String& ssid, const String& password) {
 }
 
 void WiFiTask::runProvisioningAP() {
-    ESP_LOGI(TAG, "Starting provisioning AP: %s", WIFI_AP_SSID);
+    String apSsid = WIFI_AP_SSID;
+    String apPass = WIFI_AP_PASSWORD;
+    {
+        Preferences prefs;
+        if (prefs.begin(NVS_NAMESPACE, true)) {
+            apSsid = prefs.getString(NVS_KEY_AP_SSID, apSsid);
+            apPass = prefs.getString(NVS_KEY_AP_PASS,  apPass);
+            prefs.end();
+        }
+    }
+    ESP_LOGI(TAG, "Starting provisioning AP: %s", apSsid.c_str());
     WiFi.mode(WIFI_AP);
-    WiFi.softAP(WIFI_AP_SSID, strlen(WIFI_AP_PASSWORD) ? WIFI_AP_PASSWORD : nullptr);
+    WiFi.softAP(apSsid.c_str(), apPass.length() ? apPass.c_str() : nullptr);
 
     // DNS server: redirect all queries to our IP (captive portal)
     static DNSServer dns;
@@ -181,7 +192,23 @@ void WiFiTask::taskFunc(void* /*param*/) {
     String ssid, password;
 
     if (hasStoredCredentials(ssid, password) && connectStation(ssid, password)) {
-        // ── Station mode: start mDNS, then signal WebTask ────────────────────
+        // ── Station mode: sync NTP, then start mDNS ──────────────────────────
+        configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+        ESP_LOGI(TAG, "NTP sync started");
+        for (int i = 0; i < 30; i++) {  // wait up to 15 s
+            struct timeval tv;
+            gettimeofday(&tv, nullptr);
+            if (tv.tv_sec > 1577836800L) {
+                struct tm ti;
+                gmtime_r(&tv.tv_sec, &ti);
+                ESP_LOGI(TAG, "NTP synced: %04d-%02d-%02d %02d:%02d:%02d UTC",
+                         ti.tm_year+1900, ti.tm_mon+1, ti.tm_mday,
+                         ti.tm_hour, ti.tm_min, ti.tm_sec);
+                xEventGroupSetBits(sd.events, EVT_TIME_SYNCED);
+                break;
+            }
+            vTaskDelay(pdMS_TO_TICKS(500));
+        }
         if (MDNS.begin("greenhouse")) {
             MDNS.addService("http", "tcp", 80);
             ESP_LOGI(TAG, "mDNS started – dashboard at http://greenhouse.local/");
@@ -203,6 +230,7 @@ void WiFiTask::taskFunc(void* /*param*/) {
                 xEventGroupClearBits(sd.events, EVT_WIFI_READY);
                 if (connectStation(ssid, password)) {
                     xEventGroupSetBits(sd.events, EVT_WIFI_READY);
+                    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
                 }
             }
             vTaskDelay(pdMS_TO_TICKS(10000));

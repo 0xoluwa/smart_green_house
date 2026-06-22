@@ -58,7 +58,7 @@ public:
     /**
      * @brief Read and calibrate the soil moisture.
      *
-     * Takes four samples and averages them to reduce ADC noise before mapping
+     * Takes eight samples and averages them to reduce ADC noise before mapping
      * to the calibrated percentage.
      *
      * @param[out] data  Filled with raw ADC and calibrated percentage.
@@ -76,7 +76,7 @@ public:
      * @param dry  New raw ADC reference for completely dry air.
      * @param wet  New raw ADC reference for fully submerged in water.
      */
-    void setCalibration(int dry, int wet) { m_dry = dry; m_wet = wet; }
+    void setCalibration(int dry, int wet);
 
     /** @brief Current dry-air ADC reference. */
     int getDry() const { return m_dry; }

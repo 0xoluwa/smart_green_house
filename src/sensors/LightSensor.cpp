@@ -30,7 +30,6 @@ bool LightSensor::read(float& lux) {
     }
     lux = m_bh.readLightLevel();
     if (lux < 0.0f) {
-        // Library returns -1 on read failure
         ESP_LOGW(TAG, "readLightLevel() returned invalid value");
         return false;
     }

@@ -34,6 +34,9 @@ constexpr EventBits_t EVT_WIFI_READY   = BIT0;
 /** @brief Set by SensorTask after the environment sensor initialises successfully. */
 constexpr EventBits_t EVT_SENSORS_INIT = BIT1;
 
+/** @brief Set by WiFiTask after NTP time sync succeeds. */
+constexpr EventBits_t EVT_TIME_SYNCED  = BIT2;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Data structures
 // ─────────────────────────────────────────────────────────────────────────────
@@ -103,9 +106,9 @@ struct PumpState {
     uint32_t lastOffAtMs = 0;
 };
 
-/** @brief One history snapshot for the 24-hour trend charts. */
+/** @brief One history snapshot for the trend charts. */
 struct HistorySample {
-    uint32_t timestampMs     = 0;
+    int64_t  epochMs         = 0;    ///< Unix epoch ms; 0 = NTP not yet synced
     float    temperature     = NAN;
     float    humidity        = NAN;
     float    lux             = NAN;  ///< Ambient light in lux (BH1750)
