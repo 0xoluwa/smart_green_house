@@ -131,7 +131,7 @@ void PersistentLog::appendSample(time_t epoch, float temp, float hum, float lux,
     fmtF(hu, sizeof(hu), hum,  2);
     fmtF(lx, sizeof(lx), lux,  1);
     fmtF(so, sizeof(so), soil, 2);
-    snprintf(line, sizeof(line), "%s,%s,%s,%s,%s\n", tsBuf, te, hu, lx, so);
+    snprintf(line, sizeof(line), "%s,%s,%s,%s,%s\r\n", tsBuf, te, hu, lx, so);
     f.print(line);
     f.close();
 
